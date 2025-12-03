@@ -8,10 +8,8 @@ import json
 import csv
 import sqlite3
 import smtplib
-from email.mime.text import*
-from email.mime.multipart import*
-import plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from email.mime.text import *
+from email.mime.multipart import *
 from collections import deque
 import logging
 import os
@@ -282,52 +280,130 @@ class RadiationMonitoringSystem:
         self.setup_realtime_chart(main_frame)
 
     def setup_realtime_chart(self, parent):
-        """Настройка графика в реальном времени"""
+        """Настройка графика в реальном времени с помощью Canvas"""
         chart_frame = ttk.LabelFrame(parent, text="График уровня радиации в реальном времени", padding=10)
         chart_frame.pack(fill="x", pady=10)
 
-        # Создаем фигуру для matplotlib
-        self.fig, self.ax = plt.subplots(figsize=(10, 4))
-        self.canvas = FigureCanvasTkAgg(self.fig, chart_frame)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        # Создаем Canvas для графика
+        chart_container = ttk.Frame(chart_frame)
+        chart_container.pack(fill="both", expand=True)
+
+        self.chart_canvas = tk.Canvas(chart_container, bg='white', height=300)
+        self.chart_canvas.pack(fill="both", expand=True)
 
         # Инициализация данных для графика
         self.chart_data = {sensor_id: deque(maxlen=50) for sensor_id in self.sensor_configs.keys()}
-        self.chart_timestamps = deque(maxlen=50)
 
-        # Настройка графика
-        self.ax.set_xlabel('Время')
-        self.ax.set_ylabel('Уровень радиации (мкЗв/ч)')
-        self.ax.set_title('Динамика уровня радиации по датчикам')
-        self.ax.grid(True, alpha=0.3)
-
-        self.lines = {}
-        colors = ['blue', 'red', 'green', 'orange']
-        for i, sensor_id in enumerate(self.sensor_configs.keys()):
-            line, = self.ax.plot([], [], label=sensor_id, color=colors[i % len(colors)], linewidth=2)
-            self.lines[sensor_id] = line
-
-        self.ax.legend(loc='upper left')
+        # Цвета для линий датчиков
+        self.sensor_colors = {
+            "Д-124": "blue",
+            "Д-128": "red",
+            "Д-135": "green",
+            "Д-142": "orange"
+        }
 
     def update_chart(self):
-        """Обновление графика"""
-        if hasattr(self, 'lines') and self.lines:
-            try:
-                for sensor_id in self.sensor_configs.keys():
-                    if sensor_id in self.chart_data and len(self.chart_data[sensor_id]) > 0:
-                        # Обновляем данные линии
-                        self.lines[sensor_id].set_data(
-                            range(len(self.chart_data[sensor_id])),
-                            list(self.chart_data[sensor_id])
-                        )
+        """Обновление графика на Canvas"""
+        try:
+            # Очищаем предыдущий график
+            self.chart_canvas.delete("all")
 
-                # Автоматическое масштабирование
-                if any(len(data) > 0 for data in self.chart_data.values()):
-                    self.ax.relim()
-                    self.ax.autoscale_view()
-                    self.canvas.draw_idle()  # Используем draw_idle вместо draw
-            except Exception as e:
-                self.logger.error(f"Ошибка обновления графика: {e}")
+            # Получаем размеры canvas
+            width = self.chart_canvas.winfo_width()
+            height = self.chart_canvas.winfo_height()
+
+            if width <= 1 or height <= 1:
+                return
+
+            # Отступы для графика
+            padding = 50
+            chart_width = width - 2 * padding
+            chart_height = height - 2 * padding
+
+            # Рисуем оси
+            self.chart_canvas.create_line(padding, height - padding, width - padding, height - padding,
+                                          width=2)  # X ось
+            self.chart_canvas.create_line(padding, padding, padding, height - padding, width=2)  # Y ось
+
+            # Добавляем подписи осей
+            self.chart_canvas.create_text(width // 2, height - 10, text="Время (последние измерения)",
+                                          font=("Arial", 10))
+            self.chart_canvas.create_text(10, height // 2, text="Уровень (мкЗв/ч)", font=("Arial", 10), angle=90)
+
+            # Добавляем горизонтальные линии (сетку)
+            for i in range(0, 6):
+                y = padding + i * (chart_height / 5)
+                self.chart_canvas.create_line(padding, y, width - padding, y, fill="lightgray")
+
+                # Подписи значений на оси Y
+                value = 3.0 - i * (3.0 / 5)
+                self.chart_canvas.create_text(padding - 10, y, text=f"{value:.1f}", font=("Arial", 8))
+
+            # Находим максимальное значение для масштабирования
+            max_value = 0.1
+            for sensor_id, data in self.chart_data.items():
+                if data:
+                    max_value = max(max_value, max(data))
+
+            # Масштабируем так, чтобы максимальное значение было видно
+            y_scale = chart_height / max(max_value * 1.2, 3.0)
+
+            # Рисуем линии для каждого датчика
+            legend_x = width - 150
+            legend_y = padding + 10
+
+            for sensor_id in self.sensor_configs.keys():
+                data = list(self.chart_data[sensor_id])
+                if len(data) > 1:
+                    points = []
+                    x_scale = chart_width / (len(data) - 1) if len(data) > 1 else chart_width
+
+                    for i, value in enumerate(data):
+                        x = padding + i * x_scale
+                        y = height - padding - (value * y_scale)
+                        points.extend([x, y])
+
+                    if points:
+                        # Рисуем линию
+                        color = self.sensor_colors.get(sensor_id, "blue")
+                        self.chart_canvas.create_line(points, fill=color, width=2, smooth=True)
+
+                        # Добавляем точку на последнем значении
+                        last_x = points[-4] if len(points) >= 4 else points[-2]
+                        last_y = points[-3] if len(points) >= 4 else points[-1]
+                        self.chart_canvas.create_oval(last_x - 3, last_y - 3, last_x + 3, last_y + 3,
+                                                      fill=color, outline=color)
+
+                        # Добавляем легенду
+                        self.chart_canvas.create_rectangle(legend_x, legend_y, legend_x + 10, legend_y + 10,
+                                                           fill=color, outline=color)
+                        self.chart_canvas.create_text(legend_x + 20, legend_y + 5,
+                                                      text=f"{sensor_id}: {data[-1]:.2f} мкЗв/ч",
+                                                      font=("Arial", 9), anchor="w")
+                        legend_y += 20
+
+            # Добавляем горизонтальную линию для порога предупреждения
+            if self.config['warning_threshold'] > 0:
+                warning_y = height - padding - (self.config['warning_threshold'] * y_scale)
+                if padding <= warning_y <= height - padding:
+                    self.chart_canvas.create_line(padding, warning_y, width - padding, warning_y,
+                                                  fill="orange", width=1, dash=(4, 2))
+                    self.chart_canvas.create_text(width - padding + 5, warning_y,
+                                                  text=f"Предупреждение: {self.config['warning_threshold']} мкЗв/ч",
+                                                  font=("Arial", 8), anchor="w", fill="orange")
+
+            # Добавляем горизонтальную линию для порога опасности
+            if self.config['danger_threshold'] > 0:
+                danger_y = height - padding - (self.config['danger_threshold'] * y_scale)
+                if padding <= danger_y <= height - padding:
+                    self.chart_canvas.create_line(padding, danger_y, width - padding, danger_y,
+                                                  fill="red", width=1, dash=(4, 2))
+                    self.chart_canvas.create_text(width - padding + 5, danger_y,
+                                                  text=f"Опасность: {self.config['danger_threshold']} мкЗв/ч",
+                                                  font=("Arial", 8), anchor="w", fill="red")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления графика: {e}")
 
     def create_sensors_panel(self):
         """Создание панели датчиков"""
