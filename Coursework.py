@@ -10,7 +10,7 @@ import sqlite3
 import smtplib
 from email.mime.text import*
 from email.mime.multipart import*
-import matplotlib.pyplot as plt
+import plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from collections import deque
 import logging
