@@ -13,6 +13,7 @@ from email.mime.multipart import *
 from collections import deque
 import logging
 import os
+import platform
 
 
 class RadiationMonitoringSystem:
@@ -20,6 +21,9 @@ class RadiationMonitoringSystem:
         self.root = tk.Tk()
         self.root.title("Система контроля уровня радиации - АО 'КОНСИСТ-ОС'")
         self.root.geometry("1400x900")
+
+        # Определяем путь к папке "Загрузки"
+        self.downloads_path = self.get_downloads_path()
 
         # Конфигурация системы
         self.config = {
@@ -29,7 +33,8 @@ class RadiationMonitoringSystem:
             'smtp_server': 'smtp.company.com',
             'smtp_port': 587,
             'notification_email': 'safety@company.com',
-            'notification_phone': '+79001234567'
+            'notification_phone': '+79001234567',
+            'reports_folder': self.downloads_path  # Добавляем путь к загрузкам
         }
 
         # Хранилище данных
@@ -45,6 +50,30 @@ class RadiationMonitoringSystem:
         self.init_contacts()
         self.setup_ui()
         self.start_data_collection()
+
+    def get_downloads_path(self):
+        """Получение пути к папке 'Загрузки' в зависимости от операционной системы"""
+        system = platform.system()
+
+        if system == "Windows":
+            # Для Windows
+            downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        elif system == "Darwin":
+            # Для macOS
+            downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        elif system == "Linux":
+            # Для Linux
+            downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        else:
+            # Если неизвестная ОС, используем текущую директорию
+            downloads_path = os.getcwd()
+
+        # Создаем папку для отчетов, если её нет
+        reports_folder = os.path.join(downloads_path, "Radiation_Reports")
+        if not os.path.exists(reports_folder):
+            os.makedirs(reports_folder)
+
+        return reports_folder
 
     def setup_logging(self):
         """Настройка системы логирования"""
@@ -563,6 +592,12 @@ class RadiationMonitoringSystem:
         reports_frame = ttk.LabelFrame(main_frame, text="Формирование отчетов", padding=10)
         reports_frame.pack(fill="x", pady=5)
 
+        # Отображение пути сохранения отчетов
+        path_info = ttk.Label(reports_frame,
+                              text=f"Отчеты сохраняются в: {self.config['reports_folder']}",
+                              font=("Arial", 9))
+        path_info.pack(pady=5)
+
         # Кнопки отчетов
         reports_grid = ttk.Frame(reports_frame)
         reports_grid.pack(fill="x")
@@ -582,6 +617,10 @@ class RadiationMonitoringSystem:
             btn = ttk.Button(reports_grid, text=text, command=command)
             btn.grid(row=row, column=col, padx=5, pady=5, sticky="ew")
             reports_grid.columnconfigure(col, weight=1)
+
+        # Кнопка для открытия папки с отчетами
+        ttk.Button(reports_frame, text="📂 Открыть папку с отчетами",
+                   command=self.open_reports_folder).pack(pady=10)
 
         # Статистика базы данных
         stats_frame = ttk.LabelFrame(main_frame, text="Статистика базы данных", padding=10)
@@ -615,6 +654,17 @@ class RadiationMonitoringSystem:
         # Основные настройки
         settings_frame = ttk.LabelFrame(main_frame, text="Основные настройки системы", padding=10)
         settings_frame.pack(fill="x", pady=10)
+
+        # Добавляем поле для пути сохранения отчетов
+        path_frame = ttk.Frame(settings_frame)
+        path_frame.pack(fill="x", pady=5)
+
+        ttk.Label(path_frame, text="Папка для отчетов:", width=25).pack(side="left")
+        self.reports_folder_var = tk.StringVar(value=self.config['reports_folder'])
+        reports_entry = ttk.Entry(path_frame, textvariable=self.reports_folder_var, width=40)
+        reports_entry.pack(side="left", fill="x", expand=True, padx=10)
+        ttk.Button(path_frame, text="Обзор...",
+                   command=self.select_reports_folder).pack(side="right", padx=5)
 
         settings_data = [
             ("Интервал опроса датчиков (сек):", "polling_interval", "5"),
@@ -650,6 +700,28 @@ class RadiationMonitoringSystem:
                    command=self.create_backup).pack(side="left", padx=5)
         ttk.Button(button_frame, text="Восстановление",
                    command=self.restore_backup).pack(side="left", padx=5)
+
+    def select_reports_folder(self):
+        """Выбор папки для сохранения отчетов"""
+        folder_path = filedialog.askdirectory(
+            title="Выберите папку для сохранения отчетов",
+            initialdir=self.config['reports_folder']
+        )
+        if folder_path:
+            self.reports_folder_var.set(folder_path)
+            self.config['reports_folder'] = folder_path
+
+    def open_reports_folder(self):
+        """Открытие папки с отчетами"""
+        try:
+            if platform.system() == "Windows":
+                os.startfile(self.config['reports_folder'])
+            elif platform.system() == "Darwin":  # macOS
+                os.system(f'open "{self.config["reports_folder"]}"')
+            elif platform.system() == "Linux":
+                os.system(f'xdg-open "{self.config["reports_folder"]}"')
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось открыть папку: {e}")
 
     def start_data_collection(self):
         """Запуск сбора данных"""
@@ -694,7 +766,7 @@ class RadiationMonitoringSystem:
                 self.root.after(0, lambda sid=sensor_id, r=radiation, s=status:
                 self.update_sensor_display(sid, r, s))
 
-                # Проверка пороговых значений
+                # Проверка пороговых значения
                 self.check_thresholds(sensor_id, radiation, status)
 
             except Exception as e:
@@ -848,22 +920,6 @@ class RadiationMonitoringSystem:
             self.logger.info(f"EMAIL УВЕДОМЛЕНИЕ: {subject}")
             self.logger.info(f"Сообщение: {message.strip()}")
 
-            # Имитация отправки (в реальной системе раскомментировать)
-            """
-            msg = MimeMultipart()
-            msg['From'] = self.config['notification_email']
-            msg['To'] = self.config['notification_email']
-            msg['Subject'] = subject
-
-            msg.attach(MimeText(message, 'plain'))
-
-            server = smtplib.SMTP(self.config['smtp_server'], self.config['smtp_port'])
-            server.starttls()
-            # server.login(username, password)  # Добавить учетные данные
-            server.send_message(msg)
-            server.quit()
-            """
-
         except Exception as e:
             self.logger.error(f"Ошибка отправки email: {e}")
 
@@ -891,7 +947,8 @@ class RadiationMonitoringSystem:
 
             results = cursor.fetchall()
 
-            filename = f"radiation_daily_report_{today.strftime('%Y%m%d')}.csv"
+            filename = os.path.join(self.config['reports_folder'],
+                                    f"radiation_daily_report_{today.strftime('%Y%m%d')}.csv")
 
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -931,7 +988,8 @@ class RadiationMonitoringSystem:
 
             results = cursor.fetchall()
 
-            filename = f"radiation_weekly_report_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.csv"
+            filename = os.path.join(self.config['reports_folder'],
+                                    f"radiation_weekly_report_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.csv")
 
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -970,7 +1028,8 @@ class RadiationMonitoringSystem:
 
             results = cursor.fetchall()
 
-            filename = f"radiation_monthly_report_{start_date.strftime('%Y%m')}.csv"
+            filename = os.path.join(self.config['reports_folder'],
+                                    f"radiation_monthly_report_{start_date.strftime('%Y%m')}.csv")
 
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -1011,7 +1070,8 @@ class RadiationMonitoringSystem:
 
             stats = cursor.fetchone()
 
-            filename = f"radiation_statistical_report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+            filename = os.path.join(self.config['reports_folder'],
+                                    f"radiation_statistical_report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
 
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -1043,7 +1103,8 @@ class RadiationMonitoringSystem:
 
             events = cursor.fetchall()
 
-            filename = f"radiation_events_report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+            filename = os.path.join(self.config['reports_folder'],
+                                    f"radiation_events_report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
 
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -1079,7 +1140,8 @@ class RadiationMonitoringSystem:
 
             data = cursor.fetchall()
 
-            filename = f"radiation_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+            filename = os.path.join(self.config['reports_folder'],
+                                    f"radiation_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
 
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -1187,7 +1249,7 @@ class RadiationMonitoringSystem:
     def update_alerts_tree(self):
         """Обновление дерева оповещений"""
         try:
-            # Очистка таблицы
+            # Очистка таблица
             for item in self.alerts_tree.get_children():
                 self.alerts_tree.delete(item)
 
@@ -1216,6 +1278,9 @@ class RadiationMonitoringSystem:
     def save_settings(self):
         """Сохранение настроек"""
         try:
+            # Обновление пути для отчетов
+            self.config['reports_folder'] = self.reports_folder_var.get()
+
             # Обновление конфигурации из полей ввода
             self.config['polling_interval'] = int(self.settings_entries['polling_interval'].get())
             self.config['warning_threshold'] = float(self.settings_entries['warning_threshold'].get())
@@ -1259,12 +1324,15 @@ class RadiationMonitoringSystem:
             'danger_threshold': 2.5,
             'smtp_server': 'smtp.company.com',
             'smtp_port': 587,
-            'notification_email': 'safety@company.com'
+            'notification_email': 'safety@company.com',
+            'reports_folder': self.get_downloads_path()  # Сбрасываем к стандартному пути
         }
 
         for key, entry in self.settings_entries.items():
             entry.delete(0, tk.END)
             entry.insert(0, str(default_config.get(key, "")))
+
+        self.reports_folder_var.set(default_config['reports_folder'])
 
         messagebox.showinfo("Сброс", "Настройки сброшены к умолчаниям!")
 
@@ -1311,7 +1379,8 @@ class RadiationMonitoringSystem:
         try:
             import shutil
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = f"radiation_system_backup_{timestamp}.db"
+            backup_file = os.path.join(self.config['reports_folder'],
+                                       f"radiation_system_backup_{timestamp}.db")
             shutil.copy2('radiation_monitoring.db', backup_file)
             messagebox.showinfo("Резервная копия", f"Резервная копия создана:\n{backup_file}")
         except Exception as e:
